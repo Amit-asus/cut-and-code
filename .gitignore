@@ -1,0 +1,19 @@
+## .NET
+bin/
+obj/
+*.user
+
+## Visual Studio / VS Code
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## Aspire
+.aspire/
+
+## OS
+.DS_Store
+Thumbs.db
