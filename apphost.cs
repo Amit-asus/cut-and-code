@@ -9,9 +9,20 @@ var postgres = builder.AddPostgres("postgres");
 var identityDb = postgres.AddDatabase("identitydb");
 
 //adding projects
-builder.AddProject("identity-api", "src/Services/Identity.Api/Identity.Api.csproj")
+var identityApi = builder.AddProject("identity-api", "src/Services/Identity.Api/Identity.Api.csproj")
     .WithReference(identityDb)
     .WaitFor(identityDb);
 
+var bookingApi = builder.AddProject("booking-api", "src/Services/Booking.Api/Booking.Api.csproj");
+
+var notificationApi = builder.AddProject("notification-api", "src/Services/Notification.Api/Notification.Api.csproj");
+
+var salonApi = builder.AddProject("salon-api", "src/Services/Salon.Api/Salon.Api.csproj");
+
+builder.AddProject("gateway", "src/Gateway/Gateway.csproj")
+    .WithReference(identityApi)
+    .WithReference(bookingApi)
+    .WithReference(notificationApi)
+    .WithReference(salonApi);
 
 builder.Build().Run();
