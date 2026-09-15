@@ -14,6 +14,9 @@ obj/
 ## Aspire
 .aspire/
 
+## Serilog file sink output (per-service rolling logs)
+Logs/
+
 ## OS
 .DS_Store
 Thumbs.db

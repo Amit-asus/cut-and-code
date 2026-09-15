@@ -8,8 +8,13 @@
 
   <ItemGroup>
     <ProjectReference Include="../SalonBooking.ServiceDefaults/SalonBooking.ServiceDefaults.csproj" />
+    <ProjectReference Include="../SalonBooking.Logging/SalonBooking.Logging.csproj" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="10.0.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
   </ItemGroup>
 
 </Project>

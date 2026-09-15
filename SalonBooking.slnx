@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Gateway/Gateway.csproj" />
     <Project Path="src/SalonBooking.ServiceDefaults/SalonBooking.ServiceDefaults.csproj" />
+    <Project Path="src/SalonBooking.Logging/SalonBooking.Logging.csproj" />
   </Folder>
   <Folder Name="/src/Services/">
     <Project Path="src/Services/Booking.Api/Booking.Api.csproj" />

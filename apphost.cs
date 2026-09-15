@@ -15,7 +15,8 @@ var jwtSigningKey = "a-very-long-random-secret-key-change-this-later-32chars-min
 
 
 var postgres = builder.AddPostgres("postgres")
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("postgres-data");
 var identityDb = postgres.AddDatabase("identitydb");
 var salonDb = postgres.AddDatabase("salondb");
 
@@ -24,7 +25,8 @@ var bookingDb = postgres.AddDatabase("bookingdb");
 
 //adding redis
 var cache = builder.AddRedis("cache")
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("cache-data");
 
 // Blob storage for salon images. RunAsEmulator() runs Azurite (a local fake
 // Azure Storage) in a container instead of hitting a real Azure account —
@@ -54,8 +56,6 @@ var salonImages = storage.AddBlobContainer("salon-images");
 var identityApi = builder.AddProject("identity-api", "src/Services/Identity.Api/Identity.Api.csproj")
     .WithReference(identityDb)
     .WaitFor(identityDb)
-    .WithReference(cache)
-    .WaitFor(cache)
     .WithEnvironment("Seed__AdminEmail", "admin@salonbooking.local")
     .WithEnvironment("Seed__AdminPassword", "ChangeThisAdminPassword123")
     .WithEnvironment("Jwt__SigningKey", jwtSigningKey);
