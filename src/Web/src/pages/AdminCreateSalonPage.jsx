@@ -133,7 +133,7 @@ export function AdminCreateSalonPage() {
   return (
     <div className="page">
       <div className="page-head">
-        <span className="label">[ Admin ] New Salon</span>
+        <span className="label">Admin</span>
         <h1>Create a Salon</h1>
       </div>
 

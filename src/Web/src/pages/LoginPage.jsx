@@ -27,8 +27,8 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <span className="label">[ Access ]</span>
-        <h1>Login</h1>
+        <span className="label">Welcome back</span>
+        <h1>Sign In</h1>
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="field">
             <label>Email</label>

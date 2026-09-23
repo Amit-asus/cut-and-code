@@ -31,7 +31,7 @@ export function MyBookingsPage() {
   return (
     <div className="page">
       <div className="page-head">
-        <span className="label">[ 02 ] Account</span>
+        <span className="label">Account</span>
         <h1>My Bookings</h1>
       </div>
 

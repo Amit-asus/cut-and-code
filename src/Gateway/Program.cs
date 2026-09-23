@@ -1,4 +1,6 @@
 using Serilog;
+using Yarp.ReverseProxy.Configuration;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,19 +22,72 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("WebClient", policy =>
     {
-        // Vite's default port is 5173, but it auto-increments if that port is taken,
-        // so both 5173 and the earlier-hardcoded 5174 are allowed here to survive either case.
+       
         policy.WithOrigins("http://localhost:5173", "http://localhost:5174")
             .AllowAnyHeader()
             .AllowAnyMethod();
-        // add .AllowCredentials() only if you ever send cookies; you're using
-        // a Bearer token in localStorage, so it's not needed here
     });
 });
 
+var routes = new List<RouteConfig>
+{
+    new RouteConfig
+    {
+        RouteId = "identity-route",
+        ClusterId = "identity-cluster",
+        Match = new RouteMatch { Path = "/identity/{**catch-all}" },
+        Transforms = new[]
+        {
+            new Dictionary<string, string> { { "PathRemovePrefix", "/identity" } }
+        }
+    },
+    new RouteConfig
+    {
+        RouteId = "salon-route",
+        ClusterId = "salon-cluster",
+        Match = new RouteMatch { Path = "/salons/{**catch-all}" }
+    },
+    new RouteConfig
+    {
+        RouteId = "booking-route",
+        ClusterId = "booking-cluster",
+        Match = new RouteMatch { Path = "/bookings/{**catch-all}" }
+    }
+};
+
+var clusters = new List<ClusterConfig>
+{
+    new ClusterConfig
+    {
+        ClusterId = "identity-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            { "destination1", new DestinationConfig { Address = "https://identity-api" } }
+        }
+    },
+    new ClusterConfig
+    {
+        ClusterId = "salon-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            { "destination1", new DestinationConfig { Address = "https://salon-api" } }
+        }
+    },
+    new ClusterConfig
+    {
+        ClusterId = "booking-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            { "destination1", new DestinationConfig { Address = "https://booking-api" } }
+        }
+    }
+};
+
+
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .LoadFromMemory(routes, clusters)
     .AddServiceDiscoveryDestinationResolver();
+
 
 
 var app = builder.Build();

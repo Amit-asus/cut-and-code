@@ -36,7 +36,7 @@ public static class BookingEndpoints
     public static void MapBookingEndpoints(this WebApplication app)
     {
         // Create a booking. Rejects if the same Service already has an overlapping Confirmed booking.
-        app.MapPost("/bookings", async (CreateBookingRequest request, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis) =>
+        app.MapPost("/bookings", async (CreateBookingRequest request, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis, BookingEventPublisher publisher) =>
         {
             if (request.EndTime <= request.StartTime)
             {
@@ -72,6 +72,7 @@ public static class BookingEndpoints
             await db.SaveChangesAsync();
 
             await InvalidateAvailabilityAsync(redis, booking.ServiceId, booking.StartTime);
+            await publisher.PublishBookingCreatedAsync(booking);
 
             return Results.Created($"/bookings/{booking.Id}", booking);
         }).RequireAuthorization();

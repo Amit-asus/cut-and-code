@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export function SalonDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [salon, setSalon] = useState(null);
   const [error, setError] = useState(null);
@@ -149,6 +151,7 @@ export function SalonDetailPage() {
         endTime: selectedSlot.endTime,
       });
       setBookingMessage({ type: "success", text: "Booked!" });
+      showToast("Booking confirmed! We'll send you an email shortly.", { type: "success" });
       setSelectedSlot(null);
       const updated = await api.getAvailability(selectedServiceId, bookingDate);
       setSlots(updated);
@@ -168,7 +171,7 @@ export function SalonDetailPage() {
         {salon.imageUrl && (
           <img src={salon.imageUrl} alt={salon.name} className="salon-detail-image" />
         )}
-        <span className="label">[ Salon ]</span>
+        <span className="label">Salon</span>
         {editing ? (
           <form onSubmit={handleSaveEdit} className="admin-form">
             <div className="field">

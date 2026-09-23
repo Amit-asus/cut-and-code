@@ -176,5 +176,26 @@ public static class SalonEndpoints
 
             return Results.NoContent();
         }).RequireAuthorization(policy => policy.RequireRole("Staff", "Admin"));
+
+        // Internal, service-to-service only (not routed through the Gateway) — no auth,
+        // since only other backend services are expected to call it. Lets Notification.Api
+        // resolve salon/service names for a booking-created event without needing its own
+        // copy of Salon.Api's data.
+        app.MapGet("/internal/salons/{salonId}/services/{serviceId}", async (Guid salonId, Guid serviceId, SalonDbContext db) =>
+        {
+            var salon = await db.Salons.FindAsync(salonId);
+            if (salon is null)
+            {
+                return Results.NotFound();
+            }
+
+            var service = await db.Services.FindAsync(serviceId);
+            if (service is null || service.SalonId != salonId)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new { SalonName = salon.Name, ServiceName = service.Name });
+        });
     }
 }

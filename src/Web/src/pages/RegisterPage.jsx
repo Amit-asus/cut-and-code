@@ -29,8 +29,8 @@ export function RegisterPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <span className="label">[ New account ]</span>
-        <h1>Register</h1>
+        <span className="label">Join us</span>
+        <h1>Create Account</h1>
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="field">
             <label>Email</label>

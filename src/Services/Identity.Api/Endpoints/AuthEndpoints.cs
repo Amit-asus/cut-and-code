@@ -76,5 +76,15 @@ public static class AuthEndpoints
 
             return Results.Created($"/users/{user.Id}", new { user.Id, user.Email, user.Role });
         }).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+        // Internal, service-to-service only (not routed through the Gateway) — no auth,
+        // since only other backend services are expected to call it. Lets Notification.Api
+        // resolve a customer's email for a booking-created event without needing its own
+        // copy of Identity.Api's user data.
+        app.MapGet("/internal/users/{id}", async (Guid id, IdentityDbContext db) =>
+        {
+            var user = await db.Users.FindAsync(id);
+            return user is not null ? Results.Ok(new { user.Id, user.Email }) : Results.NotFound();
+        });
     }
 }

@@ -4,6 +4,7 @@
 #:property AspireUseCliBundle=true
 #:package Aspire.Hosting.Redis@13.5.3
 #:package Aspire.Hosting.Azure.Storage@13.5.3
+#:package Aspire.Hosting.Azure.ServiceBus@13.5.3
 
 
 
@@ -16,7 +17,8 @@ var jwtSigningKey = "a-very-long-random-secret-key-change-this-later-32chars-min
 
 var postgres = builder.AddPostgres("postgres")
     .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("postgres-data");
+    .WithDataVolume("postgres-data")
+    .WithPgAdmin(pgAdmin => pgAdmin.WithLifetime(ContainerLifetime.Persistent));
 var identityDb = postgres.AddDatabase("identitydb");
 var salonDb = postgres.AddDatabase("salondb");
 
@@ -26,7 +28,8 @@ var bookingDb = postgres.AddDatabase("bookingdb");
 //adding redis
 var cache = builder.AddRedis("cache")
     .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("cache-data");
+    .WithDataVolume("cache-data")
+    .WithRedisCommander(commander => commander.WithLifetime(ContainerLifetime.Persistent));
 
 // Blob storage for salon images. RunAsEmulator() runs Azurite (a local fake
 // Azure Storage) in a container instead of hitting a real Azure account —
@@ -50,6 +53,15 @@ var storage = builder.AddAzureStorage("storage")
 // scoped directly to this container, it never needs to name/select it itself.
 var salonImages = storage.AddBlobContainer("salon-images");
 
+// Service Bus emulator — the async messaging "mailbox" between booking-api
+// (publisher) and notification-api (consumer). booking-api drops a message
+// on the booking-created queue after a successful booking and moves on
+// without waiting; notification-api picks it up whenever it's ready.
+var serviceBus = builder.AddAzureServiceBus("servicebus")
+    .RunAsEmulator();
+
+var bookingCreatedQueue = serviceBus.AddServiceBusQueue("booking-created");
+
 
 
 //adding projects
@@ -68,10 +80,10 @@ var bookingApi = builder.AddProject("booking-api", "src/Services/Booking.Api/Boo
     .WaitFor(bookingDb)
     .WithReference(cache)
     .WaitFor(cache)
+    .WithReference(serviceBus)
+    .WaitFor(serviceBus)
     .WithEnvironment("Jwt__SigningKey", jwtSigningKey);
 
-
-var notificationApi = builder.AddProject("notification-api", "src/Services/Notification.Api/Notification.Api.csproj");
 
 var salonApi = builder.AddProject("salon-api", "src/Services/Salon.Api/Salon.Api.csproj")
     .WithReference(salonDb)
@@ -80,6 +92,16 @@ var salonApi = builder.AddProject("salon-api", "src/Services/Salon.Api/Salon.Api
     // (Aspire injects it the same way it injects the salondb connection string)
     .WithReference(salonImages)
     .WithEnvironment("Jwt__SigningKey", jwtSigningKey);
+
+var notificationApi = builder.AddProject("notification-api", "src/Services/Notification.Api/Notification.Api.csproj")
+    .WithReference(serviceBus)
+    .WaitFor(serviceBus)
+    // notification-api calls identity-api's and salon-api's internal endpoints directly
+    // (not through the Gateway) to enrich a booking-created event before emailing —
+    // needs these references so "https://identity-api"/"https://salon-api" resolve via
+    // Aspire service discovery, same as the Gateway's YARP cluster addresses.
+    .WithReference(identityApi)
+    .WithReference(salonApi);
 
 builder.AddProject("gateway", "src/Gateway/Gateway.csproj")
     .WithReference(identityApi)

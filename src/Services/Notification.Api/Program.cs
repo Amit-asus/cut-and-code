@@ -1,3 +1,4 @@
+using SalonBooking.NotificationApi;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,16 @@ builder.Services.AddSingleton<SalonBooking.Logging.LoggerFactory.ILoggerFactory,
 
 builder.AddServiceDefaults();
 
+builder.AddAzureServiceBusClient("servicebus");
+
+// Named HttpClient the enrichment service uses to call Identity.Api's and Salon.Api's
+// internal endpoints. AddServiceDefaults() wires Aspire service discovery into
+// HttpClientFactory-created clients, so "https://identity-api"/"https://salon-api" resolve
+// the same way they do in the Gateway's YARP config — no hardcoded ports.
+builder.Services.AddHttpClient<BookingEnrichmentService>();
+builder.Services.AddScoped<EmailSender>();
+builder.Services.AddHostedService<BookingNotificationConsumer>();
+
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
@@ -32,28 +43,4 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

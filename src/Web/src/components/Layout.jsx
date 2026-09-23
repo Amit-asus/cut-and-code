@@ -15,8 +15,7 @@ export function Layout() {
       <header className="site-header">
         <div className="container site-header-inner">
           <Link to="/salons" className="wordmark">
-            <span className="wordmark-dot" />
-            SALON<span className="wordmark-thin">BOOKING</span>
+            Aurelia<span className="wordmark-thin">Salon</span>
           </Link>
 
           <nav className="site-nav">
@@ -63,8 +62,8 @@ export function Layout() {
 
       <footer className="site-footer">
         <div className="container site-footer-inner">
-          <span className="label">SalonBooking &copy; {new Date().getFullYear()}</span>
-          <span className="label">Book local. Book fast.</span>
+          <span className="label">Aurelia Salon &copy; {new Date().getFullYear()}</span>
+          <span className="label">Crafted for your finest moments</span>
         </div>
       </footer>
     </>
