@@ -36,6 +36,9 @@ export function AdminCreateSalonPage() {
   const [editServicePrice, setEditServicePrice] = useState("");
   const [savingServiceEdit, setSavingServiceEdit] = useState(false);
 
+  const photoDone = Boolean(salon?.imageUrl);
+  const servicesDone = services.length > 0;
+
   async function handleCreate(e) {
     e.preventDefault();
     setError(null);
@@ -142,12 +145,12 @@ export function AdminCreateSalonPage() {
           <span className="step-tracker-index dot-index">{salon ? "✓" : "01"}</span>
           Details
         </li>
-        <li className={`step-tracker-item ${salon ? "is-active" : ""}`}>
-          <span className="step-tracker-index dot-index">02</span>
+        <li className={`step-tracker-item ${photoDone ? "is-done" : salon ? "is-active" : ""}`}>
+          <span className="step-tracker-index dot-index">{photoDone ? "✓" : "02"}</span>
           Photo
         </li>
-        <li className={`step-tracker-item ${salon ? "is-active" : ""}`}>
-          <span className="step-tracker-index dot-index">03</span>
+        <li className={`step-tracker-item ${servicesDone ? "is-done" : salon ? "is-active" : ""}`}>
+          <span className="step-tracker-index dot-index">{servicesDone ? "✓" : "03"}</span>
           Services
         </li>
       </ol>

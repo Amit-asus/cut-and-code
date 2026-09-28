@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginPage() {
@@ -9,6 +9,12 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Pages that send the user here (e.g. a salon's "Log in to book") pass `state.from`
+  // so we can return them where they were. Only accept in-app paths.
+  const from = location.state?.from;
+  const redirectTo = typeof from === "string" && from.startsWith("/") ? from : "/salons";
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -16,7 +22,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/salons");
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

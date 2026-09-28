@@ -28,6 +28,22 @@ builder.AddAzureServiceBusClient("servicebus");
 // HttpClientFactory-created clients, so "https://identity-api"/"https://salon-api" resolve
 // the same way they do in the Gateway's YARP config — no hardcoded ports.
 builder.Services.AddHttpClient<BookingEnrichmentService>();
+// Typed client for the Gemini call. ServiceDefaults' standard resilience handler caps each
+// attempt at 10s — fine for our internal services, too short for an LLM that "thinks"
+// before answering. Swap it for a copy with longer timeouts on this client only.
+// RemoveAllResilienceHandlers is marked experimental (EXTEXP0001) — opted in here only.
+#pragma warning disable EXTEXP0001
+builder.Services.AddHttpClient<AiEmailWriter>()
+    .RemoveAllResilienceHandlers()
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(30);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.Retry.MaxRetryAttempts = 1;
+        // Polly validation requires the circuit breaker's sampling window >= 2x attempt timeout.
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
+    });
+#pragma warning restore EXTEXP0001
 builder.Services.AddScoped<EmailSender>();
 builder.Services.AddHostedService<BookingNotificationConsumer>();
 

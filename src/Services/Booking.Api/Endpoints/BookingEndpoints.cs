@@ -139,12 +139,25 @@ public static class BookingEndpoints
             return Results.Ok(slots);
         }).RequireAuthorization();
 
-        // List the current user's own bookings.
-        app.MapGet("/bookings", async (ClaimsPrincipal user, BookingDbContext db) =>
+        // List the current user's own bookings, newest first, one page at a time.
+        app.MapGet("/bookings", async (ClaimsPrincipal user, BookingDbContext db, int page = 1, int pageSize = 10) =>
         {
+            page = Math.Max(page, 1);
+            pageSize = Math.Clamp(pageSize, 1, 50);
+
             var customerId = Guid.Parse(user.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
-            var bookings = await db.Bookings.Where(b => b.CustomerId == customerId).ToListAsync();
-            return Results.Ok(bookings);
+            var query = db.Bookings.Where(b => b.CustomerId == customerId);
+
+            var totalCount = await query.CountAsync();
+            var bookings = await query
+                .OrderByDescending(b => b.CreatedAt)
+                .ThenByDescending(b => b.StartTime)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            return Results.Ok(new PagedResult<Booking>(bookings, page, pageSize, totalCount, totalPages));
         }).RequireAuthorization();
 
         // Cancel a booking (soft-delete: sets Status, doesn't remove the row). Only the owning customer can cancel it.

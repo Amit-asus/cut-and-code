@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -352,7 +352,12 @@ export function SalonDetailPage() {
             </button>
           </form>
         ) : (
-          <p className="state-msg">Log in to book an appointment.</p>
+          <div className="login-prompt">
+            <p className="state-msg">Log in to book an appointment.</p>
+            <Link to="/login" state={{ from: `/salons/${id}` }} className="btn">
+              Log in
+            </Link>
+          </div>
         )}
       </section>
       )}

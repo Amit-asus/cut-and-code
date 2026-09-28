@@ -38,6 +38,8 @@ export const api = {
 
   me: () => request("/identity/me"),
 
+  profile: () => request("/identity/profile"),
+
   listSalons: () => request("/salons"),
 
   getSalon: (id) => request(`/salons/${id}`),
@@ -63,7 +65,7 @@ export const api = {
   deleteService: (salonId, serviceId) =>
     request(`/salons/${salonId}/services/${serviceId}`, { method: "DELETE" }),
 
-  listBookings: () => request("/bookings"),
+  listBookings: (page = 1, pageSize = 10) => request(`/bookings?page=${page}&pageSize=${pageSize}`),
 
   getAvailability: (serviceId, date) =>
     request(`/bookings/availability?serviceId=${serviceId}&date=${date}`),

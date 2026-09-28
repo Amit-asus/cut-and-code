@@ -69,3 +69,11 @@ including real SendGrid email delivery to a real inbox. This plan is closed out.
 3. use the sendgrid to send the email notification 
 4. load balancing 
 
+//This week 
+1. will have the load balancing 
+2. rate limiting 
+3. can do payment integration  (stripe integration)
+4.  Review/feedback summarization
+You don't have a reviews feature yet, so this would require building reviews first — bigger lift, skip unless you want reviews anyway.
+5. 2. AI booking assistant / natural-language search ("chatbot" style)
+"Find me a haircut salon near Koramangala under ₹600 available tomorrow evening" → the LLM translates that into a query against your existing /salons and /bookings/availability data. This is the most "impressive demo" option but the most work — needs a new endpoint, likely a new small service or just a feature inside the Gateway/frontend, and prompt engineering to reliably turn natural language into structured filters.

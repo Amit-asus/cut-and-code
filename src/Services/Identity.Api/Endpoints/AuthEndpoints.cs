@@ -53,6 +53,19 @@ public static class AuthEndpoints
             return Results.Ok(new { id, email, role });
         }).RequireAuthorization();
 
+        // Returns the caller's own profile from the database (unlike /me, which only echoes token claims),
+        // so it includes fields that never go into the JWT, like CreatedAt.
+        app.MapGet("/profile", async (ClaimsPrincipal user, IdentityDbContext db) =>
+        {
+            var id = Guid.Parse(user.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
+            var profile = await db.Users
+                .Where(u => u.Id == id)
+                .Select(u => new { u.Id, u.Email, Role = u.Role.ToString(), u.CreatedAt })
+                .FirstOrDefaultAsync();
+
+            return profile is null ? Results.NotFound() : Results.Ok(profile);
+        }).RequireAuthorization();
+
         // Admin-only: creates a user with any role (Customer/Staff/Admin). Requires the "Admin" role, not just any valid token.
         app.MapPost("/admin/users", async (CreateUserRequest  request, IdentityDbContext db, PasswordHasherService hasher) =>
         {
