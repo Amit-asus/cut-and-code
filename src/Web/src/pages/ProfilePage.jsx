@@ -32,7 +32,6 @@ export function ProfilePage() {
       .catch((err) => setError(err.message));
 
     if (canBook) {
-      // Page 1 with size 1 is enough: we only need the total count and the most recent booking.
       api
         .listBookings(1, 1)
         .then((result) => setBookingStats({ total: result.totalCount, latest: result.items[0] ?? null }))

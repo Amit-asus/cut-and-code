@@ -39,8 +39,6 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Dark theme: same token names, different values. ThemeContext (and the inline script in
-   index.html) sets <html data-theme="dark">, so every rule that uses var(--…) flips for free. */
 :root[data-theme="dark"] {
   --bg: #15120e;
   --surface: #1e1a15;
@@ -135,8 +133,6 @@ select {
   color: inherit;
   background-color: var(--surface);
 }
-
-/* ---------- Primitives ---------- */
 
 .label {
   font-family: var(--font-body);
@@ -301,8 +297,6 @@ select {
   color: var(--on-accent);
 }
 
-/* ---------- Layout: header / nav / footer ---------- */
-
 .site-header {
   position: sticky;
   top: 0;
@@ -372,7 +366,6 @@ select {
 }
 
 
-/* Header profile chip: avatar with a spinning gradient ring + email/role, arrow slides in on hover. */
 .profile-chip {
   position: relative;
   display: inline-flex;
@@ -386,12 +379,10 @@ select {
   text-decoration: none;
   overflow: hidden;
   isolation: isolate;
-  /* "backwards", not "both": a held end-state would override the :hover transform below. */
   animation: chip-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
-/* Light sweep that glides across the chip on hover. */
 .profile-chip::after {
   content: "";
   position: absolute;
@@ -479,7 +470,6 @@ select {
   transform: scale(1.08);
 }
 
-/* Little "online" dot with a soft pulse. */
 .profile-chip-dot {
   position: absolute;
   right: 0;
@@ -633,8 +623,6 @@ select {
   color: var(--muted);
 }
 
-/* ---------- Shared page scaffolding ---------- */
-
 .page {
   display: flex;
   flex-direction: column;
@@ -682,8 +670,6 @@ select {
   margin-bottom: 12px;
   box-shadow: none;
 }
-
-/* ---------- Salons grid ---------- */
 
 .salon-grid {
   display: grid;
@@ -751,8 +737,6 @@ select {
   color: var(--muted);
   transition: color 0.2s ease;
 }
-
-/* ---------- Services list ---------- */
 
 .service-list {
   display: flex;
@@ -822,8 +806,6 @@ select {
   font-size: 0.82rem;
 }
 
-/* ---------- Auth pages ---------- */
-
 .auth-page {
   display: flex;
   justify-content: center;
@@ -866,8 +848,6 @@ select {
 .auth-switch a:hover {
   text-decoration: underline;
 }
-
-/* ---------- Admin forms ---------- */
 
 .step-tracker {
   display: flex;
@@ -954,16 +934,12 @@ select {
   box-shadow: var(--shadow-sm);
 }
 
-/* ---------- Booking form ---------- */
-
 .booking-form {
   display: flex;
   flex-direction: column;
   gap: 18px;
   max-width: 400px;
 }
-
-/* ---------- Bookings list ---------- */
 
 .booking-list {
   display: flex;
@@ -1114,8 +1090,6 @@ a.btn {
 .login-prompt .state-msg {
   margin: 0;
 }
-
-/* ---------- Profile ---------- */
 
 .profile-page {
   gap: 28px;
@@ -1447,8 +1421,6 @@ a.btn {
   }
 }
 
-/* ---------- Modal ---------- */
-
 .modal {
   width: min(420px, calc(100vw - 32px));
   padding: 0;
@@ -1488,8 +1460,6 @@ a.btn {
   gap: 10px;
   margin-top: 8px;
 }
-
-/* ---------- Toasts ---------- */
 
 .toast-stack {
   position: fixed;

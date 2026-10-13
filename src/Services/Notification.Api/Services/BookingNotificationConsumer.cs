@@ -3,11 +3,6 @@ using Azure.Messaging.ServiceBus;
 
 namespace SalonBooking.NotificationApi;
 
-// Long-running background worker: listens on the booking-created queue for the life of
-// the app, independent of any HTTP request. IServiceScopeFactory is used (rather than
-// injecting BookingEnrichmentService/EmailSender directly) because this class is a
-// singleton but HttpClient-backed services are typically scoped — each message gets its
-// own scope, same lifetime rules as a normal per-request DI scope.
 public class BookingNotificationConsumer(
     ServiceBusClient client,
     IServiceScopeFactory scopeFactory,
@@ -41,9 +36,6 @@ public class BookingNotificationConsumer(
                 await emailSender.SendBookingConfirmationAsync(enriched, message);
             }
 
-            // Only remove the message from the queue once we've fully processed it — if
-            // something above throws, ProcessErrorAsync below logs it and the message stays
-            // in the queue to be retried instead of silently vanishing.
             await args.CompleteMessageAsync(args.Message, args.CancellationToken);
         };
 
@@ -55,15 +47,13 @@ public class BookingNotificationConsumer(
 
         await processor.StartProcessingAsync(stoppingToken);
 
-        // Keep the background service alive for as long as the app runs; StopAsync (called
-        // automatically on shutdown) stops the processor via the token below.
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (OperationCanceledException)
         {
-            // Expected on shutdown.
+            //Todo
         }
 
         await processor.StopProcessingAsync();

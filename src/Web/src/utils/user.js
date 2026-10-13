@@ -1,4 +1,3 @@
-// "amit.kumar@x.com" → "AK", "jane@x.com" → "JA"
 export function initialsFrom(email) {
   const local = (email ?? "").split("@")[0];
   const parts = local.split(/[._-]+/).filter(Boolean);

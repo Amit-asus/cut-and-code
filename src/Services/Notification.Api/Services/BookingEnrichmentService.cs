@@ -4,8 +4,6 @@ namespace SalonBooking.NotificationApi;
 
 public record EnrichedBooking(string CustomerEmail, string SalonName, string ServiceName);
 
-// Calls Identity.Api's and Salon.Api's internal-only endpoints to turn the opaque Guids
-// on a booking-created message into human-readable values for the notification email.
 public class BookingEnrichmentService(HttpClient httpClient, ILogger<BookingEnrichmentService> logger)
 {
     public async Task<EnrichedBooking?> EnrichAsync(BookingCreatedMessage message)

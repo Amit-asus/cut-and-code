@@ -8,18 +8,11 @@ namespace SalonBooking.BookingApi;
 
 public static class BookingEndpoints
 {
-    // Matches ASP.NET Core's default Results.Ok(...) serialization (camelCase property
-    // names), so a cache hit and a cache miss return byte-for-byte-equivalent JSON shape.
     private static readonly JsonSerializerOptions CacheJsonOptions = new(JsonSerializerDefaults.Web);
 
     private static string AvailabilityCacheKey(Guid serviceId, DateOnly date) =>
         $"availability:{serviceId}:{date:yyyy-MM-dd}";
 
-    // Best-effort cache invalidation: a booking write already succeeded in Postgres (the
-    // source of truth) by the time this runs. If Redis is briefly unavailable, we swallow
-    // the error rather than fail the booking — worst case, the picker shows a stale slot
-    // for up to the cache's TTL, but the /bookings POST conflict check still prevents an
-    // actual double-booking. Never let a caching concern block the core feature.
     private static async Task InvalidateAvailabilityAsync(IConnectionMultiplexer redis, Guid serviceId, DateTime startTimeUtc)
     {
         try
@@ -29,13 +22,11 @@ public static class BookingEndpoints
         }
         catch (RedisException)
         {
-            // Ignored deliberately — see comment above.
         }
     }
 
     public static void MapBookingEndpoints(this WebApplication app)
     {
-        // Create a booking. Rejects if the same Service already has an overlapping Confirmed booking.
         app.MapPost("/bookings", async (CreateBookingRequest request, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis, BookingEventPublisher publisher) =>
         {
             if (request.EndTime <= request.StartTime)
@@ -43,7 +34,7 @@ public static class BookingEndpoints
                 return Results.BadRequest("EndTime must be after StartTime.");
             }
 
-            var customerId = Guid.Parse(user.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
+            Guid customerId = Guid.Parse(user.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
 
             var hasConflict = await db.Bookings.AnyAsync(b =>
                 b.ServiceId == request.ServiceId &&
@@ -77,17 +68,11 @@ public static class BookingEndpoints
             return Results.Created($"/bookings/{booking.Id}", booking);
         }).RequireAuthorization();
 
-        // Fixed 1-hour slots for a service on a given day (9am-9pm IST), each flagged booked/available.
-        // Any authenticated user can call this (needed to render the slot picker before booking) —
-        // it only reveals whether a slot is taken, never which customer holds it.
         app.MapGet("/bookings/availability", async (Guid serviceId, DateOnly date, BookingDbContext db, IConnectionMultiplexer redis) =>
         {
             var cacheKey = AvailabilityCacheKey(serviceId, date);
             var redisDb = redis.GetDatabase();
 
-            // Cache read is also best-effort: if Redis is unreachable, fall through and
-            // compute from Postgres like normal — a cache outage should degrade to "slower",
-            // never to "broken".
             try
             {
                 var cached = await redisDb.StringGetAsync(cacheKey);
@@ -98,13 +83,8 @@ public static class BookingEndpoints
             }
             catch (RedisException)
             {
-                // Ignored deliberately — fall through to computing from Postgres.
             }
 
-            // "9am-9pm" means salon-local (IST) hours, not UTC — build midnight in IST, then
-            // convert to UTC, since bookings are stored/compared in UTC (see CreateBooking above).
-            // Without this, slots were literally 9:00-20:00 UTC, which the frontend then displayed
-            // shifted by the browser's own local offset (e.g. 2:30 PM-1:30 AM for an IST viewer).
             var istZone = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
             var localMidnight = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
             var dayStart = TimeZoneInfo.ConvertTimeToUtc(localMidnight, istZone);
@@ -133,13 +113,11 @@ public static class BookingEndpoints
             }
             catch (RedisException)
             {
-                // Ignored deliberately — the response below is still correct, we just won't cache it this time.
             }
 
             return Results.Ok(slots);
         }).RequireAuthorization();
 
-        // List the current user's own bookings, newest first, one page at a time.
         app.MapGet("/bookings", async (ClaimsPrincipal user, BookingDbContext db, int page = 1, int pageSize = 10) =>
         {
             page = Math.Max(page, 1);
@@ -160,10 +138,6 @@ public static class BookingEndpoints
             return Results.Ok(new PagedResult<Booking>(bookings, page, pageSize, totalCount, totalPages));
         }).RequireAuthorization();
 
-        // Cancel a booking (soft-delete: sets Status, doesn't remove the row). Only the owning customer can cancel it.
-        // {id:guid} (not just {id}) so this doesn't swallow /bookings/availability — without the
-        // constraint, "availability" matches {id} as a literal string and ASP.NET Core routes
-        // GET /bookings/availability here too, then 405s since this route is DELETE-only.
         app.MapDelete("/bookings/{id:guid}", async (Guid id, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis) =>
         {
             var customerId = Guid.Parse(user.FindFirstValue(JwtRegisteredClaimNames.Sub)!);

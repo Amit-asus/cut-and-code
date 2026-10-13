@@ -23,7 +23,6 @@ export function MyBookingsPage() {
     try {
       const result = await api.listBookings(pageToLoad, PAGE_SIZE);
 
-      // Cancelling the last booking on the last page can leave it empty — step back one page.
       if (result.items.length === 0 && pageToLoad > 1) {
         setPage(pageToLoad - 1);
         return;
@@ -33,8 +32,6 @@ export function MyBookingsPage() {
       setTotalPages(result.totalPages);
       setTotalCount(result.totalCount);
 
-      // Bookings only store SalonId/ServiceId, so look up names from Salon.Api —
-      // one request per distinct salon on this page (GET /salons/{id} includes its services).
       const salonIds = [...new Set(result.items.map((b) => b.salonId))];
       const salons = await Promise.all(salonIds.map((id) => api.getSalon(id).catch(() => null)));
       setSalonsById((prev) => {

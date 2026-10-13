@@ -5,9 +5,6 @@ namespace SalonBooking.NotificationApi;
 
 public record AiEmail(string Subject, string Body);
 
-// Asks Gemini to write a friendly booking confirmation email. Best-effort: returns null on
-// any failure (no key, timeout, rate limit, bad JSON) so EmailSender can fall back to the
-// plain template — an AI outage should never stop a customer getting their confirmation.
 public class AiEmailWriter(HttpClient httpClient, IConfiguration configuration, ILogger<AiEmailWriter> logger)
 {
     public async Task<AiEmail?> WriteBookingConfirmationAsync(EnrichedBooking booking, DateTime startLocal)
@@ -19,8 +16,6 @@ public class AiEmailWriter(HttpClient httpClient, IConfiguration configuration, 
             return null;
         }
 
-        // Tried in order: free-tier models regularly return 503 "high demand", so a busy
-        // primary model falls through to a lighter one instead of straight to the plain email.
         var models = configuration.GetSection("Gemini:Models").Get<string[]>() is { Length: > 0 } configured
             ? configured
             : ["gemini-3.8-flash"];
@@ -58,7 +53,6 @@ public class AiEmailWriter(HttpClient httpClient, IConfiguration configuration, 
 
     private async Task<AiEmail?> TryModelAsync(string model, string apiKey, object requestBody)
     {
-        // Key goes in a header rather than the URL so it never shows up in logged request URLs.
         using var request = new HttpRequestMessage(HttpMethod.Post,
             $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
         {
@@ -76,7 +70,6 @@ public class AiEmailWriter(HttpClient httpClient, IConfiguration configuration, 
                 return null;
             }
 
-            // Gemini wraps the model's answer: candidates[0].content.parts[0].text holds our JSON string.
             using var doc = JsonDocument.Parse(raw);
             var text = doc.RootElement
                 .GetProperty("candidates")[0]

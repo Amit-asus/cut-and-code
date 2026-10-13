@@ -4,9 +4,6 @@ using SendGrid.Helpers.Mail;
 
 namespace SalonBooking.NotificationApi;
 
-// Sends the actual booking confirmation email via SendGrid. ApiKey comes from
-// SendGrid:ApiKey (set via dotnet user-secrets locally, same pattern as Jwt:SigningKey —
-// never committed). FromEmail/FromName are not secret, so they live in appsettings.json.
 public class EmailSender(IConfiguration configuration, AiEmailWriter aiEmailWriter, ILogger<EmailSender> logger)
 {
     public async Task SendBookingConfirmationAsync(EnrichedBooking booking, BookingCreatedMessage message)
@@ -20,17 +17,14 @@ public class EmailSender(IConfiguration configuration, AiEmailWriter aiEmailWrit
         var client = new SendGridClient(apiKey);
         var from = new EmailAddress(fromEmail, fromName);
         var to = new EmailAddress(booking.CustomerEmail);
-        // Bookings are stored in UTC; show the customer their local (IST) time, same
-        // time zone Booking.Api's availability endpoint uses.
         var startLocal = TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(message.StartTime, DateTimeKind.Utc),
             TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
 
         string subject, plainTextContent, htmlContent;
-        var aiEmail = await aiEmailWriter.WriteBookingConfirmationAsync(booking, startLocal);
+        AiEmail? aiEmail = await aiEmailWriter.WriteBookingConfirmationAsync(booking, startLocal);
         if (aiEmail is not null)
         {
-            // AI output is plain text; encode it ourselves rather than trusting model-written HTML.
             subject = aiEmail.Subject;
             plainTextContent = aiEmail.Body;
             htmlContent = $"<p>{WebUtility.HtmlEncode(aiEmail.Body).Replace("\n", "<br>")}</p>";

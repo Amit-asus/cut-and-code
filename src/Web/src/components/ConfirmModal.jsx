@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 
-// Native <dialog> + showModal() gives us focus trapping, Esc-to-close and a backdrop for free.
 export function ConfirmModal({
   open,
   title,
@@ -21,13 +20,11 @@ export function ConfirmModal({
   }, [open]);
 
   function handleCancelEvent(e) {
-    // Fired on Esc — keep React state as the source of truth instead of letting the browser close it.
     e.preventDefault();
     if (!busy) onCancel();
   }
 
   function handleBackdropClick(e) {
-    // A click whose target is the <dialog> itself landed on the backdrop, not the content.
     if (e.target === dialogRef.current && !busy) onCancel();
   }
 

@@ -11,8 +11,6 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Pages that send the user here (e.g. a salon's "Log in to book") pass `state.from`
-  // so we can return them where they were. Only accept in-app paths.
   const from = location.state?.from;
   const redirectTo = typeof from === "string" && from.startsWith("/") ? from : "/salons";
 
