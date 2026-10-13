@@ -20,8 +20,7 @@ builder.Services.AddSingleton<SalonBooking.Logging.LoggerFactory.ILoggerFactory,
 builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<BookingDbContext>("bookingdb");
 builder.AddRedisClient("cache");
-builder.AddAzureServiceBusClient("servicebus");
-builder.Services.AddSingleton<BookingEventPublisher>();
+builder.AddBookingEventPublisher();
 builder.AddJwtAuth();
 
 var app = builder.Build();

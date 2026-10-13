@@ -8,7 +8,7 @@ public class BookingEnrichmentService(HttpClient httpClient, ILogger<BookingEnri
 {
     public async Task<EnrichedBooking?> EnrichAsync(BookingCreatedMessage message)
     {
-        var userResponse = await httpClient.GetAsync($"https://identity-api/internal/users/{message.CustomerId}");
+        var userResponse = await httpClient.GetAsync($"https+http://identity-api/internal/users/{message.CustomerId}");
         if (!userResponse.IsSuccessStatusCode)
         {
             logger.LogWarning("Could not resolve user {CustomerId} for booking {BookingId}: {StatusCode}",
@@ -19,7 +19,7 @@ public class BookingEnrichmentService(HttpClient httpClient, ILogger<BookingEnri
         var user = await userResponse.Content.ReadFromJsonAsync<UserResponse>();
 
         var salonResponse = await httpClient.GetAsync(
-            $"https://salon-api/internal/salons/{message.SalonId}/services/{message.ServiceId}");
+            $"https+http://salon-api/internal/salons/{message.SalonId}/services/{message.ServiceId}");
         if (!salonResponse.IsSuccessStatusCode)
         {
             logger.LogWarning("Could not resolve salon/service {SalonId}/{ServiceId} for booking {BookingId}: {StatusCode}",

@@ -27,7 +27,7 @@ public static class BookingEndpoints
 
     public static void MapBookingEndpoints(this WebApplication app)
     {
-        app.MapPost("/bookings", async (CreateBookingRequest request, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis, BookingEventPublisher publisher) =>
+        app.MapPost("/bookings", async (CreateBookingRequest request, ClaimsPrincipal user, BookingDbContext db, IConnectionMultiplexer redis, IBookingEventPublisher publisher) =>
         {
             if (request.EndTime <= request.StartTime)
             {

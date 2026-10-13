@@ -24,7 +24,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<SalonDbContext>("salondb");
-builder.AddAzureBlobContainerClient("salon-images");
+builder.AddImageStorage();
 
 builder.AddJwtAuth();
 

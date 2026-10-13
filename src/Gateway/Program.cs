@@ -18,12 +18,15 @@ builder.Services.AddSingleton<SalonBooking.Logging.LoggerFactory.ILoggerFactory,
 
 builder.AddServiceDefaults();
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() is { Length: > 0 } configured
+    ? configured
+    : ["http://localhost:5173", "http://localhost:5174"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("WebClient", policy =>
     {
-       
-        policy.WithOrigins("http://localhost:5173", "http://localhost:5174")
+        policy.WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -62,7 +65,7 @@ var clusters = new List<ClusterConfig>
         ClusterId = "identity-cluster",
         Destinations = new Dictionary<string, DestinationConfig>
         {
-            { "destination1", new DestinationConfig { Address = "https://identity-api" } }
+            { "destination1", new DestinationConfig { Address = "https+http://identity-api" } }
         }
     },
     new ClusterConfig
@@ -70,7 +73,7 @@ var clusters = new List<ClusterConfig>
         ClusterId = "salon-cluster",
         Destinations = new Dictionary<string, DestinationConfig>
         {
-            { "destination1", new DestinationConfig { Address = "https://salon-api" } }
+            { "destination1", new DestinationConfig { Address = "https+http://salon-api" } }
         }
     },
     new ClusterConfig
@@ -78,7 +81,7 @@ var clusters = new List<ClusterConfig>
         ClusterId = "booking-cluster",
         Destinations = new Dictionary<string, DestinationConfig>
         {
-            { "destination1", new DestinationConfig { Address = "https://booking-api" } }
+            { "destination1", new DestinationConfig { Address = "https+http://booking-api" } }
         }
     }
 };

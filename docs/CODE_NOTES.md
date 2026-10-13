@@ -98,3 +98,18 @@ Standard Aspire template: adds service discovery, resilience, health checks and 
 - **`MyBookingsPage.jsx`** — cancelling the last booking on the last page steps back one page. Bookings only store `SalonId`/`ServiceId`, so names are looked up from Salon.Api with one request per distinct salon on the page (`GET /salons/{id}` includes its services).
 - **`ProfilePage.jsx`** — fetches page 1 with size 1: only the total count and most recent booking are needed.
 - **`utils/user.js`** — initials helper: `"amit.kumar@x.com"` → `"AK"`, `"jane@x.com"` → `"JA"`.
+
+---
+
+## Running on AWS (provider switches)
+
+The same code runs on the laptop (Azure emulators under Aspire) and on AWS. Each service picks an implementation at start-up from configuration; with nothing set, it behaves exactly as before.
+
+- **Salon.Api photos** — the upload endpoint depends on `IImageStorage`, not on a cloud SDK. `Storage:Provider = S3` registers `S3ImageStorage`; anything else registers `AzureBlobImageStorage` (Azurite). The choice is made in `Extensions/StorageExtensions.cs`, which also skips registering the Azure client on AWS, where there is no connection string for it.
+- **S3 image URL** — `S3ImageStorage` returns `https://{bucket}.s3.{region}.amazonaws.com/{key}` unless `Storage:S3:PublicBaseUrl` is set (for a CloudFront address). Each part of the key is URL-escaped because file names can contain spaces. The bucket itself must allow public reads, or the browser gets 403 on every image — the code does not set that.
+- **Booking.Api publisher** — the endpoint depends on `IBookingEventPublisher`. `Messaging:Provider = Sqs` registers `SqsBookingEventPublisher`; anything else registers the Service Bus `BookingEventPublisher`. Both build the message body with the shared `IBookingEventPublisher.ToJson`, so the two queues carry the identical payload.
+- **SQS publisher catches every exception**, not only SQS ones — missing credentials and network failures surface as other exception types, and a notification problem must never fail a booking.
+- **Notification.Api consumer** — `BookingNotificationHandler` holds the "enrich, then email" logic once; `BookingNotificationConsumer` (Service Bus) and `SqsBookingNotificationConsumer` (SQS) only differ in how they receive and acknowledge.
+- **SQS consumer loop** — long-polls for up to 20 seconds per call, so an empty queue costs almost no requests. A message is deleted only after the handler succeeds; on failure it is left alone and SQS redelivers it after the queue's visibility timeout. An unparseable message is deleted, since retrying can never fix it. `response.Messages` is null (not empty) when nothing arrived in AWS SDK v4, hence the `?? []`.
+- **`https+http://identity-api`** (Gateway clusters and `BookingEnrichmentService`) — service discovery uses the https endpoint when one exists and falls back to http. Under Aspire nothing changes; on AWS the services sit behind plain http inside the private network.
+- **Gateway CORS** — allowed origins come from `Cors:AllowedOrigins`; the two localhost Vite ports are the fallback when it is not set.

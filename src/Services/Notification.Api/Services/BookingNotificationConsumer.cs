@@ -24,17 +24,8 @@ public class BookingNotificationConsumer(
                 return;
             }
 
-            logger.LogInformation("Received booking-created event for booking {BookingId}", message.BookingId);
-
             using var scope = scopeFactory.CreateScope();
-            var enrichment = scope.ServiceProvider.GetRequiredService<BookingEnrichmentService>();
-            var emailSender = scope.ServiceProvider.GetRequiredService<EmailSender>();
-
-            var enriched = await enrichment.EnrichAsync(message);
-            if (enriched is not null)
-            {
-                await emailSender.SendBookingConfirmationAsync(enriched, message);
-            }
+            await scope.ServiceProvider.GetRequiredService<BookingNotificationHandler>().HandleAsync(message);
 
             await args.CompleteMessageAsync(args.Message, args.CancellationToken);
         };

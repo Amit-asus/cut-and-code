@@ -1,4 +1,3 @@
-using Azure.Storage.Blobs;
 using Microsoft.EntityFrameworkCore;
 
 namespace SalonBooking.SalonApi;
@@ -65,7 +64,7 @@ public static class SalonEndpoints
             return Results.NoContent();
         }).RequireAuthorization(policy => policy.RequireRole("Staff", "Admin"));
 
-        app.MapPost("/salons/{id}/image", async (Guid id, IFormFile file, SalonDbContext db, BlobContainerClient blobContainerClient) =>
+        app.MapPost("/salons/{id}/image", async (Guid id, IFormFile file, SalonDbContext db, IImageStorage storage) =>
         {
             var salon = await db.Salons.FindAsync(id);
             if (salon is null)
@@ -73,18 +72,13 @@ public static class SalonEndpoints
                 return Results.NotFound();
             }
 
-            await blobContainerClient.CreateIfNotExistsAsync();
-            await blobContainerClient.SetAccessPolicyAsync(Azure.Storage.Blobs.Models.PublicAccessType.Blob);
-
-            var blobName = $"{id}/{Guid.NewGuid()}-{file.FileName}";
-            var blobClient = blobContainerClient.GetBlobClient(blobName);
+            var name = $"{id}/{Guid.NewGuid()}-{file.FileName}";
 
             await using (var stream = file.OpenReadStream())
             {
-                await blobClient.UploadAsync(stream, overwrite: true);
+                salon.ImageUrl = await storage.UploadAsync(name, stream, file.ContentType);
             }
 
-            salon.ImageUrl = blobClient.Uri.ToString();
             await db.SaveChangesAsync();
 
             return Results.Ok(salon);

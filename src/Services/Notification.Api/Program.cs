@@ -19,8 +19,6 @@ builder.Services.AddSingleton<SalonBooking.Logging.LoggerFactory.ILoggerFactory,
 
 builder.AddServiceDefaults();
 
-builder.AddAzureServiceBusClient("servicebus");
-
 builder.Services.AddHttpClient<BookingEnrichmentService>();
 #pragma warning disable EXTEXP0001
 builder.Services.AddHttpClient<AiEmailWriter>()
@@ -34,7 +32,7 @@ builder.Services.AddHttpClient<AiEmailWriter>()
     });
 #pragma warning restore EXTEXP0001
 builder.Services.AddScoped<EmailSender>();
-builder.Services.AddHostedService<BookingNotificationConsumer>();
+builder.AddBookingNotificationConsumer();
 
 var app = builder.Build();
 
