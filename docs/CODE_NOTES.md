@@ -82,6 +82,48 @@ Design decisions and "why" explanations for the SalonBooking codebase, kept here
 ### `Models/BookingCreatedMessage.cs`
 - Mirrors the payload Booking.Api's `BookingEventPublisher` sends. Property names must match (case-insensitively — System.Text.Json deserializes case-insensitively by default) since there's no shared contract project.
 
+## Assistant.Api (RAG support assistant)
+
+How it works in one line: turn every help article section and salon/service listing into an embedding (a vector of numbers that captures meaning), store them in Postgres with pgvector, and for each question find the nearest vectors and let Gemini answer *only* from those texts.
+
+### `Models/KnowledgeChunk.cs`
+- `SourceKey` (`doc:cancellation-policy#refunds`, `salon:{id}`, `service:{id}`) is the stable identity used to decide add/update/delete on reindex.
+- `ContentHash` covers the text **and** the embedding model + dimensions, so switching models re-embeds everything automatically.
+- `vector(768)`: Gemini's embedding model defaults to 3072 dims, but pgvector's HNSW index supports at most 2000, and 768 is cheaper with near-identical retrieval quality.
+
+### `AssistantDbContext.cs`
+- `HasPostgresExtension("vector")` makes the migration run `CREATE EXTENSION vector`.
+- HNSW index with `vector_cosine_ops` — must match the operator used in queries (`CosineDistance` → `<=>`), or Postgres ignores the index.
+
+### `Services/GeminiClient.cs`
+- Documents are embedded with `taskType: RETRIEVAL_DOCUMENT` (plus a title), questions with `RETRIEVAL_QUERY` — Gemini tunes the vectors for asymmetric search this way. Both must use the same model and dimensions or distances are meaningless.
+- `batchEmbedContents` takes up to 100 texts per call, so reindexing is a handful of requests, not one per chunk.
+- Same resilience override as Notification.Api's `AiEmailWriter` (LLM calls outlast the default 10s attempt timeout).
+
+### `Services/KnowledgeIndexer.cs`
+- Singleton with a `SemaphoreSlim` so startup, cron and the admin endpoint can't run two reindexes at once; it creates its own DI scope for the scoped `DbContext`.
+- Embeds first, writes second: if Gemini or Salon.Api fails, nothing in the database has changed yet.
+
+### `Services/ReindexScheduler.cs`
+- This is the project's cron job. `Cronos` parses a standard 5-field cron expression; the loop sleeps until the next occurrence. Startup reindex retries a few times because Salon.Api may not be ready yet on AWS (locally the AppHost's `WaitFor(salonApi)` covers it).
+
+### `Services/AssistantService.cs`
+- Each question: retrieve help chunks (RAG) as before, then run a **tool loop** with Gemini function calling (max 5 rounds): Gemini either answers in text or asks for a tool; the code runs the tool, sends the result back, and asks again.
+- Retrieval no longer short-circuits when nothing is close enough — booking messages ("tomorrow at 3pm") don't match help articles, but the tools can still answer them. The "don't guess" guard is now the prompt plus the `NO_ANSWER` marker, which maps to the fallback reply. (JSON mode can't be combined with function calling, which is why the answer is plain text with `[n]` citations instead of `{answered, answer, sourceIds}`.)
+- Gemini's reply content is appended to the conversation **exactly as received** (`JsonElement`), because newer models attach a thought signature to function calls that must be sent back unchanged. Later rounds prefer the model that started the loop for the same reason.
+- Chat memory: the widget sends the last 10 turns; the server keeps the last 10, truncates each to 1000 chars and drops leading model turns (Gemini expects the conversation to start with the user). Small-talk shortcut only applies to the first message, so "ok"/"yes" mid-conversation reach the model.
+- Sources are fenced in `<source>` tags and the prompt says they are data — salon names/addresses are typed by Staff, so they're untrusted input from the model's point of view.
+
+### `Services/BookingTools.cs`
+- Three tools: `search_salons` (Salon.Api `/internal/knowledge/salons`, the same call the indexer uses), `get_availability` and `propose_booking` (both Booking.Api `/bookings/availability`, forwarding the customer's own `Authorization` header — Assistant.Api never holds a token of its own).
+- **The AI never books.** `propose_booking` only validates (salon owns service, slot exists, is free, is in the future) and stores a `BookingProposal` in the per-request `ToolContext`; the response carries it to the widget, and the customer's Confirm click calls the existing `POST /bookings`. So double-booking prevention, cache invalidation and the confirmation email all stay on the one existing path, and a misunderstood message can't create a booking.
+- The proposal (names, price, times) is built by the server from Salon.Api/Booking.Api data, not from the model's arguments, so the model can't put a wrong price on the card.
+- Tools take and return IST `HH:mm` times and `yyyy-MM-dd` dates (what customers say); UTC stays internal. Tool failures return an `error` object instead of throwing, so the model can explain the problem.
+
+### `Web/src/components/ChatWidget.jsx`
+- Rendered once in `Layout`, so it's on every page. Salon sources are in-app links (closing the panel on click); help-article sources have no page, so they expand to show the snippet instead.
+- A reply with a `proposal` renders a booking card; Confirm calls `api.createBooking` (same as `SalonDetailPage`) and shows the error inline on failure (e.g. a 409 if someone took the slot in between).
+
 ## ServiceDefaults (`Extensions.cs`)
 
 Standard Aspire template: adds service discovery, resilience, health checks and OpenTelemetry to every service that references it. Health check requests are excluded from tracing. `/health` requires all checks to pass (readiness); `/alive` requires only checks tagged `live` (liveness). These endpoints are mapped only in Development — exposing them in production has security implications (see https://aka.ms/aspire/healthchecks). Optional extras from the template (not enabled): restricting service discovery to `https`, gRPC client instrumentation, the Azure Monitor exporter.
@@ -113,3 +155,4 @@ The same code runs on the laptop (Azure emulators under Aspire) and on AWS. Each
 - **SQS consumer loop** — long-polls for up to 20 seconds per call, so an empty queue costs almost no requests. A message is deleted only after the handler succeeds; on failure it is left alone and SQS redelivers it after the queue's visibility timeout. An unparseable message is deleted, since retrying can never fix it. `response.Messages` is null (not empty) when nothing arrived in AWS SDK v4, hence the `?? []`.
 - **`https+http://identity-api`** (Gateway clusters and `BookingEnrichmentService`) — service discovery uses the https endpoint when one exists and falls back to http. Under Aspire nothing changes; on AWS the services sit behind plain http inside the private network.
 - **Gateway CORS** — allowed origins come from `Cors:AllowedOrigins`; the two localhost Vite ports are the fallback when it is not set.
+- **`ServiceUrls` aliases (ServiceDefaults `AddServiceUrlAliases`)** — Elastic Beanstalk on Linux silently drops environment properties whose names contain a hyphen, so `services__identity-api__http__0` never reaches the app. Each `ServiceUrls:<name>` entry (env var `ServiceUrls__identity_api`) is copied to `Services:<name with _ turned into ->:http:0`, the key service discovery reads. With no `ServiceUrls` section nothing changes, so Aspire runs are unaffected. `infra/salonbooking.yml` sets these for the Gateway and Notification.Api.

@@ -1,0 +1,610 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: SalonBooking - five .NET services on Elastic Beanstalk, RDS, ElastiCache, S3, SQS, CloudFront and the Amplify website.
+
+# ---------------------------------------------------------------------------
+# Parameters: values you type in when you deploy. NoEcho = hidden (secrets).
+# ---------------------------------------------------------------------------
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC to run in (the account's default VPC is fine).
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Public subnets of that VPC, in at least two Availability Zones.
+  SolutionStackName:
+    Type: String
+    Default: 64bit Amazon Linux 2023 v3.11.10 running .NET 10
+    Description: Elastic Beanstalk platform. List them with "aws elasticbeanstalk list-available-solution-stacks".
+  CnamePrefix:
+    Type: String
+    Default: salonbooking-cf
+    Description: Start of each environment's address, e.g. salonbooking-cf-gateway.<region>.elasticbeanstalk.com. Must be unused in the region.
+  ArtifactBucket:
+    Type: String
+    Description: Existing S3 bucket holding the five service zips.
+  IdentityZip:
+    Type: String
+    Default: Identity.Api.zip
+  SalonZip:
+    Type: String
+    Default: Salon.Api.zip
+  BookingZip:
+    Type: String
+    Default: Booking.Api.zip
+  NotificationZip:
+    Type: String
+    Default: Notification.Api.zip
+  GatewayZip:
+    Type: String
+    Default: Gateway.zip
+  AssistantZip:
+    Type: String
+    Default: Assistant.Api.zip
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    AllowedPattern: "[A-Za-z0-9]+"
+    Description: Postgres master password (letters and digits only).
+  JwtSigningKey:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+  AdminEmail:
+    Type: String
+  AdminPassword:
+    Type: String
+    NoEcho: true
+  SendGridApiKey:
+    Type: String
+    NoEcho: true
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+  GitHubRepository:
+    Type: String
+    Default: https://github.com/Amit-asus/cut-and-code
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub personal access token so Amplify can read the repository.
+
+Resources:
+  # -------------------------------------------------------------------------
+  # Network: three security groups (firewalls).
+  # -------------------------------------------------------------------------
+  GatewaySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Gateway - HTTP from the internet
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Backend services - HTTP from the Gateway and each other only
+      VpcId: !Ref VpcId
+
+  BackendFromGateway:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BackendSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref GatewaySecurityGroup
+
+  BackendFromBackend:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BackendSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref BackendSecurityGroup
+
+  DataSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Postgres and Redis - from backend services only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+
+  # -------------------------------------------------------------------------
+  # Data: Postgres, Redis (Valkey), image bucket, booking queue.
+  # -------------------------------------------------------------------------
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SalonBooking database subnets
+      SubnetIds: !Ref SubnetIds
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Engine: postgres
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: "20"
+      StorageType: gp3
+      MasterUsername: postgres
+      MasterUserPassword: !Ref DbPassword
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DataSecurityGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: SalonBooking cache subnets
+      SubnetIds: !Ref SubnetIds
+
+  Cache:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupDescription: SalonBooking availability cache
+      Engine: valkey
+      CacheNodeType: cache.t4g.micro
+      NumCacheClusters: 1
+      AutomaticFailoverEnabled: false
+      TransitEncryptionEnabled: true
+      AtRestEncryptionEnabled: true
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      SecurityGroupIds:
+        - !Ref DataSecurityGroup
+
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+
+  ImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImagesBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${ImagesBucket.Arn}/*"
+
+  BookingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-booking-created"
+      VisibilityTimeout: 60
+
+  # -------------------------------------------------------------------------
+  # Permissions: what the servers and Elastic Beanstalk itself may do.
+  # -------------------------------------------------------------------------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
+      Policies:
+        - PolicyName: salonbooking-app-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${ImagesBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt BookingQueue.Arn
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  BeanstalkServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: elasticbeanstalk.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy
+
+  # -------------------------------------------------------------------------
+  # Compute: one Elastic Beanstalk application, five environments.
+  # -------------------------------------------------------------------------
+  Application:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Ref AWS::StackName
+
+  IdentityVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref IdentityZip
+
+  SalonVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref SalonZip
+
+  BookingVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref BookingZip
+
+  NotificationVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref NotificationZip
+
+  GatewayVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref GatewayZip
+
+  AssistantVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref AssistantZip
+
+  IdentityEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-identity"
+      CNAMEPrefix: !Sub "${CnamePrefix}-identity"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref IdentityVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref BackendSecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ConnectionStrings__identitydb
+          Value: !Sub "Host=${Database.Endpoint.Address};Port=${Database.Endpoint.Port};Database=identitydb;Username=postgres;Password=${DbPassword};SSL Mode=Require"
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Jwt__SigningKey, Value: !Ref JwtSigningKey }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Seed__AdminEmail, Value: !Ref AdminEmail }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Seed__AdminPassword, Value: !Ref AdminPassword }
+
+  SalonEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-salon"
+      CNAMEPrefix: !Sub "${CnamePrefix}-salon"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref SalonVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref BackendSecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ConnectionStrings__salondb
+          Value: !Sub "Host=${Database.Endpoint.Address};Port=${Database.Endpoint.Port};Database=salondb;Username=postgres;Password=${DbPassword};SSL Mode=Require"
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Jwt__SigningKey, Value: !Ref JwtSigningKey }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Storage__Provider, Value: S3 }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Storage__S3__BucketName, Value: !Ref ImagesBucket }
+
+  BookingEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-booking"
+      CNAMEPrefix: !Sub "${CnamePrefix}-booking"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref BookingVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref BackendSecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ConnectionStrings__bookingdb
+          Value: !Sub "Host=${Database.Endpoint.Address};Port=${Database.Endpoint.Port};Database=bookingdb;Username=postgres;Password=${DbPassword};SSL Mode=Require"
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ConnectionStrings__cache
+          Value: !Sub "${Cache.PrimaryEndPoint.Address}:${Cache.PrimaryEndPoint.Port},ssl=true"
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Jwt__SigningKey, Value: !Ref JwtSigningKey }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Messaging__Provider, Value: Sqs }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Messaging__Sqs__QueueUrl, Value: !Ref BookingQueue }
+
+  # Services call each other by the EC2 DNS name of the environment's Elastic IP
+  # (ec2-1-2-3-4.<region>.compute.amazonaws.com). Inside the VPC that name resolves
+  # to the private IP, so the security-group rules apply.
+  NotificationEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-notification"
+      CNAMEPrefix: !Sub "${CnamePrefix}-notification"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref NotificationVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref BackendSecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Messaging__Provider, Value: Sqs }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Messaging__Sqs__QueueUrl, Value: !Ref BookingQueue }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: SendGrid__ApiKey, Value: !Ref SendGridApiKey }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Gemini__ApiKey, Value: !Ref GeminiApiKey }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__identity_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt IdentityEnvironment.EndpointURL]]
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__salon_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt SalonEnvironment.EndpointURL]]
+
+  # The RDS master user can run CREATE EXTENSION vector, which the EF migration does on startup.
+  AssistantEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-assistant"
+      CNAMEPrefix: !Sub "${CnamePrefix}-assistant"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref AssistantVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref BackendSecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ConnectionStrings__assistantdb
+          Value: !Sub "Host=${Database.Endpoint.Address};Port=${Database.Endpoint.Port};Database=assistantdb;Username=postgres;Password=${DbPassword};SSL Mode=Require"
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Jwt__SigningKey, Value: !Ref JwtSigningKey }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: Gemini__ApiKey, Value: !Ref GeminiApiKey }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__salon_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt SalonEnvironment.EndpointURL]]
+
+  GatewayEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Sub "${AWS::StackName}-gateway"
+      CNAMEPrefix: !Sub "${CnamePrefix}-gateway"
+      SolutionStackName: !Ref SolutionStackName
+      VersionLabel: !Ref GatewayVersion
+      OptionSettings:
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: EnvironmentType, Value: SingleInstance }
+        - { Namespace: "aws:elasticbeanstalk:environment", OptionName: ServiceRole, Value: !Ref BeanstalkServiceRole }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: IamInstanceProfile, Value: !Ref InstanceProfile }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: SecurityGroups, Value: !Ref GatewaySecurityGroup }
+        - { Namespace: "aws:autoscaling:launchconfiguration", OptionName: DisableDefaultEC2SecurityGroup, Value: "true" }
+        - { Namespace: "aws:ec2:instances", OptionName: InstanceTypes, Value: t3.micro }
+        - { Namespace: "aws:ec2:vpc", OptionName: VPCId, Value: !Ref VpcId }
+        - { Namespace: "aws:ec2:vpc", OptionName: Subnets, Value: !Join [",", !Ref SubnetIds] }
+        - { Namespace: "aws:ec2:vpc", OptionName: AssociatePublicIpAddress, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:healthreporting:system", OptionName: SystemType, Value: basic }
+        - { Namespace: "aws:elasticbeanstalk:managedactions", OptionName: ManagedActionsEnabled, Value: "false" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: StreamLogs, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: RetentionInDays, Value: "1" }
+        - { Namespace: "aws:elasticbeanstalk:cloudwatch:logs", OptionName: DeleteOnTerminate, Value: "true" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_URLS, Value: "http://+:5000" }
+        - { Namespace: "aws:elasticbeanstalk:application:environment", OptionName: ASPNETCORE_ENVIRONMENT, Value: Production }
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__identity_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt IdentityEnvironment.EndpointURL]]
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__salon_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt SalonEnvironment.EndpointURL]]
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__booking_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt BookingEnvironment.EndpointURL]]
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: ServiceUrls__assistant_api
+          Value: !Sub
+            - "http://ec2-${Ip}.${AWS::Region}.compute.amazonaws.com"
+            - Ip: !Join ["-", !Split [".", !GetAtt AssistantEnvironment.EndpointURL]]
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: Cors__AllowedOrigins__0
+          Value: !Sub "https://main.${WebsiteApp.DefaultDomain}"
+
+  # -------------------------------------------------------------------------
+  # Edge: CloudFront gives the Gateway an HTTPS address.
+  # -------------------------------------------------------------------------
+  ApiDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: SalonBooking API (HTTPS in front of the Gateway)
+        Origins:
+          - Id: gateway
+            DomainName: !Sub "${CnamePrefix}-gateway.${AWS::Region}.elasticbeanstalk.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 80
+        DefaultCacheBehavior:
+          TargetOriginId: gateway
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad          # Managed-CachingDisabled
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+
+  # -------------------------------------------------------------------------
+  # Website: Amplify builds src/Web from GitHub using amplify.yml.
+  # -------------------------------------------------------------------------
+  WebsiteApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub "${AWS::StackName}-web"
+      Repository: !Ref GitHubRepository
+      AccessToken: !Ref GitHubToken
+      Platform: WEB
+      EnvironmentVariables:
+        - Name: AMPLIFY_MONOREPO_APP_ROOT
+          Value: src/Web
+        - Name: VITE_API_URL
+          Value: !Sub "https://${ApiDistribution.DomainName}"
+      CustomRules:
+        - Source: "</^[^.]+$|\\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json|webp)$)([^.]+$)/>"
+          Target: /index.html
+          Status: "200"
+
+  WebsiteBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt WebsiteApp.AppId
+      BranchName: main
+      EnableAutoBuild: true
+      Stage: PRODUCTION
+
+Outputs:
+  WebsiteUrl:
+    Description: Open this in the browser.
+    Value: !Sub "https://main.${WebsiteApp.DefaultDomain}"
+  ApiUrl:
+    Description: HTTPS address of the API (CloudFront).
+    Value: !Sub "https://${ApiDistribution.DomainName}"
+  GatewayUrl:
+    Value: !Sub "http://${CnamePrefix}-gateway.${AWS::Region}.elasticbeanstalk.com"
+  AmplifyAppId:
+    Description: Needed once to start the first website build.
+    Value: !GetAtt WebsiteApp.AppId
+  ImagesBucketName:
+    Value: !Ref ImagesBucket
+  BookingQueueUrl:
+    Value: !Ref BookingQueue
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  CacheEndpoint:
+    Value: !GetAtt Cache.PrimaryEndPoint.Address

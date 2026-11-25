@@ -1,0 +1,22 @@
+@Assistant.Api_HostAddress = https://localhost:7231
+
+POST {{Assistant.Api_HostAddress}}/assistant/ask
+Content-Type: application/json
+
+{
+  "question": "What is the cancellation policy?"
+}
+
+###
+
+POST {{Assistant.Api_HostAddress}}/assistant/ask
+Content-Type: application/json
+
+{
+  "question": "Which salons offer a haircut?"
+}
+
+###
+
+POST {{Assistant.Api_HostAddress}}/assistant/reindex
+Authorization: Bearer <admin-jwt>

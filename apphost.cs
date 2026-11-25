@@ -16,13 +16,15 @@ var jwtSigningKey = "a-very-long-random-secret-key-change-this-later-32chars-min
 
 
 var postgres = builder.AddPostgres("postgres")
+    .WithImage("pgvector/pgvector", "pg18-trixie")
     .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("postgres-data")
+    .WithVolume("postgres-data", "/var/lib/postgresql")
     .WithPgAdmin(pgAdmin => pgAdmin.WithLifetime(ContainerLifetime.Persistent));
 var identityDb = postgres.AddDatabase("identitydb");
 var salonDb = postgres.AddDatabase("salondb");
 
 var bookingDb = postgres.AddDatabase("bookingdb");
+var assistantDb = postgres.AddDatabase("assistantdb");
 
 
 var cache = builder.AddRedis("cache")
@@ -78,7 +80,16 @@ var notificationApi = builder.AddProject("notification-api", "src/Services/Notif
     .WithReference(identityApi)
     .WithReference(salonApi);
 
+var assistantApi = builder.AddProject("assistant-api", "src/Services/Assistant.Api/Assistant.Api.csproj")
+    .WithReference(assistantDb)
+    .WaitFor(assistantDb)
+    .WithReference(salonApi)
+    .WaitFor(salonApi)
+    .WithReference(bookingApi)
+    .WithEnvironment("Jwt__SigningKey", jwtSigningKey);
+
 builder.AddProject("gateway", "src/Gateway/Gateway.csproj")
+    .WithReference(assistantApi)
     .WithReference(identityApi)
     .WithReference(bookingApi)
     .WithReference(notificationApi)

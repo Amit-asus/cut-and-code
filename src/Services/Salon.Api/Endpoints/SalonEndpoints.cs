@@ -164,5 +164,25 @@ public static class SalonEndpoints
 
             return Results.Ok(new { SalonName = salon.Name, ServiceName = service.Name });
         });
+
+        app.MapGet("/internal/knowledge/salons", async (SalonDbContext db) =>
+        {
+            var salons = await db.Salons
+                .AsNoTracking()
+                .OrderBy(s => s.Name)
+                .Select(s => new
+                {
+                    s.Id,
+                    s.Name,
+                    s.Address,
+                    Services = s.Services
+                        .OrderBy(service => service.Name)
+                        .Select(service => new { service.Id, service.Name, service.Price })
+                        .ToList()
+                })
+                .ToListAsync();
+
+            return Results.Ok(salons);
+        });
     }
 }

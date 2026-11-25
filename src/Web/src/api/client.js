@@ -73,4 +73,7 @@ export const api = {
   createBooking: (booking) => request("/bookings", { method: "POST", body: JSON.stringify(booking) }),
 
   cancelBooking: (id) => request(`/bookings/${id}`, { method: "DELETE" }),
+
+  askAssistant: (question, history = []) =>
+    request("/assistant/ask", { method: "POST", body: JSON.stringify({ question, history }) }),
 };

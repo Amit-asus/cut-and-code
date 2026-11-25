@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,8 @@ public static class Extensions
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        builder.AddServiceUrlAliases();
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -29,6 +32,20 @@ public static class Extensions
 
             http.AddServiceDiscovery();
         });
+
+        return builder;
+    }
+
+    private static TBuilder AddServiceUrlAliases<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        var aliases = builder.Configuration.GetSection("ServiceUrls").GetChildren()
+            .Where(url => !string.IsNullOrWhiteSpace(url.Value))
+            .ToDictionary(url => $"Services:{url.Key.Replace('_', '-')}:http:0", url => url.Value);
+
+        if (aliases.Count > 0)
+        {
+            builder.Configuration.AddInMemoryCollection(aliases);
+        }
 
         return builder;
     }

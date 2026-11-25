@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using Serilog;
 using Yarp.ReverseProxy.Configuration;
 
@@ -32,8 +33,34 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("assistant", context =>
+    {
+        var forwardedFor = context.Request.Headers["X-Forwarded-For"].ToString();
+        var clientKey = !string.IsNullOrWhiteSpace(forwardedFor)
+            ? forwardedFor.Split(',')[0].Trim()
+            : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(clientKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimiting:Assistant:PermitLimit", 10),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+});
+
 var routes = new List<RouteConfig>
 {
+    new RouteConfig
+    {
+        RouteId = "assistant-route",
+        ClusterId = "assistant-cluster",
+        Match = new RouteMatch { Path = "/assistant/{**catch-all}" },
+        RateLimiterPolicy = "assistant"
+    },
     new RouteConfig
     {
         RouteId = "identity-route",
@@ -60,6 +87,14 @@ var routes = new List<RouteConfig>
 
 var clusters = new List<ClusterConfig>
 {
+    new ClusterConfig
+    {
+        ClusterId = "assistant-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            { "destination1", new DestinationConfig { Address = "https+http://assistant-api" } }
+        }
+    },
     new ClusterConfig
     {
         ClusterId = "identity-cluster",
@@ -96,6 +131,8 @@ builder.Services.AddReverseProxy()
 var app = builder.Build();
 
 app.UseCors("WebClient");
+
+app.UseRateLimiter();
 
 app.MapDefaultEndpoints();
 

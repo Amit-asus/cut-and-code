@@ -5,6 +5,7 @@
     <Project Path="src/SalonBooking.Logging/SalonBooking.Logging.csproj" />
   </Folder>
   <Folder Name="/src/Services/">
+    <Project Path="src/Services/Assistant.Api/Assistant.Api.csproj" />
     <Project Path="src/Services/Booking.Api/Booking.Api.csproj" />
     <Project Path="src/Services/Identity.Api/Identity.Api.csproj" />
     <Project Path="src/Services/Notification.Api/Notification.Api.csproj" />

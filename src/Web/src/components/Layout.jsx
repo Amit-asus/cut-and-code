@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useAvatar } from "../context/AvatarContext";
 import { Avatar } from "./Avatar";
+import { ChatWidget } from "./ChatWidget";
 
 function SunIcon() {
   return (
@@ -112,6 +113,8 @@ export function Layout() {
           <span className="label">Crafted for your finest moments</span>
         </div>
       </footer>
+
+      <ChatWidget />
     </>
   );
 }
